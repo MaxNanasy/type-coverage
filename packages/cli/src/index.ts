@@ -7,6 +7,7 @@ import * as packageJson from '../package.json'
 import { lint } from 'type-coverage-core'
 
 let suppressError = false
+let noFooterWhenSuccess = false
 const existsAsync = util.promisify(fs.exists)
 const readFileAsync = util.promisify(fs.readFile)
 const writeFileAsync = util.promisify(fs.writeFile)
@@ -40,6 +41,7 @@ function printHelp() {
 --show-relative-path        boolean?  show relative path in detail message
 --history-file              string?   file name where history is saved
 --no-detail-when-failed     boolean?  not show detail message when the CLI failed
+--no-footer-when-success    boolean?  not show footer when the CLI succeeded
 --report-semantic-error     boolean?  report typescript semantic error
 -- file1.ts file2.ts ...    string[]? only checks these files, useful for usage with tools like lint-staged
 --cache-directory           string?   set cache directory
@@ -79,6 +81,7 @@ interface CliArgs extends BaseArgs {
 
   ['history-file']: string
   ['no-detail-when-failed']: boolean
+  ['no-footer-when-success']: boolean
   ['update-if-higher']: boolean
 
   ['report-semantic-error']: boolean
@@ -101,6 +104,7 @@ interface PkgArgs extends BaseArgs {
 
   historyFile: string
   noDetailWhenFailed: boolean
+  noFooterWhenSuccess: boolean
   updateIfHigher: boolean
   reportSemanticError: boolean
   cacheDirectory: string
@@ -173,15 +177,18 @@ async function executeCommandLine() {
   const percent = Math.floor(10000 * correctCount / totalCount) / 100
   const atLeastFailed = typeof atLeast === 'number' && percent < atLeast
   const isFailed = is && percent !== is
+  const failed = atLeastFailed || isFailed
 
-  if (detail || (!noDetailWhenFailed && (atLeastFailed || isFailed))) {
+  if (detail || (!noDetailWhenFailed && failed)) {
     for (const { file, line, character, text } of anys) {
       const filePath = showRelativePath ? file : path.resolve(process.cwd(), file)
       console.log(`${filePath}:${line + 1}:${character + 1}: ${text}`)
     }
   }
   const percentString = percent.toFixed(2)
-  console.log(`${correctCount} / ${totalCount} ${percentString}%`)
+  if (!(noFooterWhenSuccess && !failed)) {
+    console.log(`${correctCount} / ${totalCount} ${percentString}%`)
+  }
 
   if (update) {
     await saveTarget(+percentString)
@@ -229,6 +236,7 @@ async function getTarget(argv: CliArgs) {
     }
 
     suppressError = getArgOrCfgVal(['suppressError']) || false
+    noFooterWhenSuccess = getArgOrCfgVal(['no-footer-when-success', 'noFooterWhenSuccess']) || false
 
     const atLeast = getArgOrCfgVal(['at-least', 'atLeast'])
     const debug = getArgOrCfgVal(['debug'])
@@ -323,7 +331,8 @@ async function saveHistory(percentage: number, historyFile?:string) {
 }
 
 executeCommandLine().then(() => {
-  console.log('type-coverage success.')
+  if (!noFooterWhenSuccess)
+    console.log('type-coverage success.')
 }, (error: Error | string) => {
   if (error instanceof Error) {
     console.log(error.message)
